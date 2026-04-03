@@ -1,0 +1,10 @@
+#!/bin/bash
+set -eux -o pipefail
+IMAGE_STORAGE_DIR=/usr/lib/containers/storage
+IMAGE_LIST_FILE=${IMAGE_STORAGE_DIR}/image-list.txt
+while IFS="," read -r img sha; do
+    [ -z "${img}" ] && continue
+    skopeo copy --preserve-digests \
+        "dir:${IMAGE_STORAGE_DIR}/${sha}" \
+        "containers-storage:${img}"
+done < "${IMAGE_LIST_FILE}"

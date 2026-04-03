@@ -1,0 +1,18 @@
+[Unit]
+# CDI generation uses NVML; requires the NVIDIA kernel module to be loaded first.
+# Do not order this in basic.target — that runs before modules / udev settle.
+Description=Generate /etc/cdi/nvidia.yaml
+Documentation=https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html
+After=multi-user.target systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+# Best-effort if modprobe rules did not run yet (e.g. slow PCI enumerate).
+ExecStartPre=-/usr/sbin/modprobe nvidia
+ExecStartPre=-/usr/sbin/modprobe nvidia-uvm
+ExecStart=/usr/bin/nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
