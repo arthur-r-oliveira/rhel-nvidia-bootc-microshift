@@ -10,9 +10,9 @@ ENV EUS_RELEASE=${EUS_RELEASE}
 USER root
 WORKDIR /root
 
-COPY scripts/rhsm-enable-eus-in-container.sh /usr/bin/rhsm-enable-eus-in-container.sh
-COPY scripts/dnf-refresh-all.sh /usr/bin/dnf-refresh-all.sh
-COPY scripts/dnf-bootstrap-builder.sh /usr/bin/dnf-bootstrap-builder.sh
+COPY scripts/image/rhsm-enable-eus-in-container.sh /usr/bin/rhsm-enable-eus-in-container.sh
+COPY scripts/image/dnf-refresh-all.sh /usr/bin/dnf-refresh-all.sh
+COPY scripts/image/dnf-bootstrap-builder.sh /usr/bin/dnf-bootstrap-builder.sh
 RUN chmod 755 /usr/bin/rhsm-enable-eus-in-container.sh /usr/bin/dnf-refresh-all.sh /usr/bin/dnf-bootstrap-builder.sh \
     && /usr/bin/dnf-refresh-all.sh \
     && /usr/bin/dnf-bootstrap-builder.sh

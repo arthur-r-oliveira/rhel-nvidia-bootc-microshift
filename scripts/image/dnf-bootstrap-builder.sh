@@ -12,7 +12,7 @@ ensure_kernel_devel() {
 		return 0
 	fi
 	echo "ERROR: ${kdev} is not available from enabled repos." >&2
-	echo "For rhel9-eus bootc kernels, enable EUS in the build: set EUS_RELEASE in argfile.conf, run configure-host-rhsm-eus.sh on the host, and build with BUILD_WITH_HOST_RHSM=1 (see README)." >&2
+	echo "For rhel9-eus bootc kernels, enable EUS in the build: set EUS_RELEASE in argfile.conf, run scripts/host/configure-host-rhsm-eus.sh on the host, and build with BUILD_WITH_HOST_RHSM=1 (see README)." >&2
 	echo "Ref: https://access.redhat.com/solutions/6712511" >&2
 	exit 1
 }

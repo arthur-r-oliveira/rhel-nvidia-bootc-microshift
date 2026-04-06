@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 # Align container dnf with RHEL EUS BaseOS/AppStream so kernel-devel matches bootc kernel-core.
-# Host-only repo toggles are invisible here unless you mount /etc/yum.repos.d and /var/lib/rhsm (see test-build.sh).
+# Host-only repo toggles are invisible here unless you mount /etc/yum.repos.d and /var/lib/rhsm (see build/test-build.sh).
 # Ref: https://access.redhat.com/solutions/6712511 https://access.redhat.com/articles/rhel-eus#c5
 set -euo pipefail
 

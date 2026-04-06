@@ -14,8 +14,8 @@ ARG RPM_HOST
 
 USER root
 WORKDIR /root
-COPY x509-configuration.ini x509-configuration.ini
-COPY scripts/build-kmod-nvidia-precompiled.sh /root/build-kmod-nvidia-precompiled.sh
+COPY packaging/x509-configuration.ini x509-configuration.ini
+COPY scripts/image/build-kmod-nvidia-precompiled.sh /root/build-kmod-nvidia-precompiled.sh
 
 ENV BASE_URL=${BASE_URL} \
     DRIVER_VERSION=${DRIVER_VERSION} \
@@ -57,18 +57,16 @@ ENV NVDP_IMAGE=${NVDP_IMAGE}
 
 USER root
 
-COPY scripts/rhsm-enable-eus-in-container.sh /usr/bin/rhsm-enable-eus-in-container.sh
-COPY scripts/dnf-refresh-all.sh /usr/bin/dnf-refresh-all.sh
-COPY scripts/dnf-bootstrap-final.sh /usr/bin/dnf-bootstrap-final.sh
+COPY scripts/image/rhsm-enable-eus-in-container.sh /usr/bin/rhsm-enable-eus-in-container.sh
+COPY scripts/image/dnf-refresh-all.sh /usr/bin/dnf-refresh-all.sh
+COPY scripts/image/dnf-bootstrap-final.sh /usr/bin/dnf-bootstrap-final.sh
 RUN chmod 755 /usr/bin/rhsm-enable-eus-in-container.sh /usr/bin/dnf-refresh-all.sh /usr/bin/dnf-bootstrap-final.sh \
    && /usr/bin/dnf-refresh-all.sh
 
-COPY nvidia-toolkit-firstboot.service /usr/lib/systemd/system/nvidia-toolkit-firstboot.service
 COPY etc /etc
-COPY etc/systemd/system/microshift-make-rshared.service /etc/systemd/system/microshift-make-rshared.service
-COPY scripts/microshift-copy-images /usr/bin/microshift-copy-images
-COPY scripts/embed-microshift-images.sh /usr/bin/embed-microshift-images.sh
-COPY scripts/bootc-finalize-for-lint.sh /usr/bin/bootc-finalize-for-lint.sh
+COPY scripts/image/microshift-copy-images /usr/bin/microshift-copy-images
+COPY scripts/image/embed-microshift-images.sh /usr/bin/embed-microshift-images.sh
+COPY scripts/image/bootc-finalize-for-lint.sh /usr/bin/bootc-finalize-for-lint.sh
 COPY usr/lib/sysusers.d/10-microshift-nvidia-bootc.conf /usr/lib/sysusers.d/10-microshift-nvidia-bootc.conf
 
 ARG USE_64K_PAGESIZE
@@ -76,7 +74,7 @@ ENV USE_64K_PAGESIZE=${USE_64K_PAGESIZE}
 
 COPY --from=builder /root/yum-packaging-precompiled-kmod/RPMS/*/*.rpm /rpms/
 
-COPY scripts/install-microshift-nvidia-stack.sh /usr/bin/install-microshift-nvidia-stack.sh
+COPY scripts/image/install-microshift-nvidia-stack.sh /usr/bin/install-microshift-nvidia-stack.sh
 
 RUN chmod 755 /usr/bin/install-microshift-nvidia-stack.sh \
     && /usr/bin/install-microshift-nvidia-stack.sh
@@ -84,11 +82,8 @@ RUN chmod 755 /usr/bin/install-microshift-nvidia-stack.sh \
 ENV IMAGE_STORAGE_DIR=/usr/lib/containers/storage
 ENV IMAGE_LIST_FILE=${IMAGE_STORAGE_DIR}/image-list.txt
 
-COPY scripts/verify-nvidia-kmod.sh /usr/bin/verify-nvidia-kmod.sh
+COPY scripts/image/verify-nvidia-kmod.sh /usr/bin/verify-nvidia-kmod.sh
 RUN chmod 755 /usr/bin/verify-nvidia-kmod.sh && /usr/bin/verify-nvidia-kmod.sh
-
-RUN mkdir -p /etc/skel/.config/containers
-COPY containers-storage.conf /etc/skel/.config/containers/storage.conf
 
 RUN --mount=type=secret,id=pullsecret,dst=/run/secrets/pull-secret.json \
     mkdir -p /etc/crio \

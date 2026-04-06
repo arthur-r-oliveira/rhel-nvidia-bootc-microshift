@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 # Pin RHEL minor release and prefer EUS BaseOS/AppStream on the *build host* so dnf inside
-# podman build sees EUS content when using host RHSM (see BUILD_WITH_HOST_RHSM in test-build.sh).
+# podman build sees EUS content when using host RHSM (see BUILD_WITH_HOST_RHSM in build/test-build.sh).
 # Ref: https://access.redhat.com/articles/rhel-eus#c5
 set -euo pipefail
 

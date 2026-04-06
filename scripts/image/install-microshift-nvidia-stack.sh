@@ -32,7 +32,7 @@ elif yum_repos_d_writable; then
     curl -fsSL "$(nvidia_cuda_repo_url)" -o /etc/yum.repos.d/cuda-rhel9.repo
 else
     echo "ERROR: CUDA repo missing and /etc/yum.repos.d is not writable (read-only mount?)." >&2
-    echo "On the build host run: sudo ./scripts/configure-host-nvidia-build-repos.sh (repo root)." >&2
+    echo "On the build host run: sudo ./scripts/host/configure-host-nvidia-build-repos.sh (repo root)." >&2
     exit 1
 fi
 
@@ -113,7 +113,7 @@ elif yum_repos_d_writable; then
         -o /etc/yum.repos.d/nvidia-container-toolkit.repo
 else
     echo "ERROR: nvidia-container-toolkit.repo missing and /etc/yum.repos.d is read-only." >&2
-    echo "On the build host run: sudo scripts/configure-host-nvidia-build-repos.sh" >&2
+    echo "On the build host run: sudo scripts/host/configure-host-nvidia-build-repos.sh" >&2
     exit 1
 fi
 
@@ -162,8 +162,7 @@ firewall-offline-cmd --zone=trusted --add-source=169.254.169.1
 systemctl enable microshift-make-rshared.service
 rm -f /usr/lib/systemd/system/default.target.wants/bootc-fetch-apply-updates.timer
 ln -s ../cloud-init.target /usr/lib/systemd/system/default.target.wants/cloud-init.target
-ln -sf /usr/lib/systemd/system/nvidia-toolkit-firstboot.service \
-    /usr/lib/systemd/system/multi-user.target.wants/nvidia-toolkit-firstboot.service
+systemctl enable nvidia-toolkit-firstboot.service
 
 echo "blacklist nouveau" > /etc/modprobe.d/blacklist_nouveau.conf
 

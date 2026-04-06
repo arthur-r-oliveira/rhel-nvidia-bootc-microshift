@@ -1,2 +1,13 @@
 .pull-secret.json
 bib-output/
+
+# Azure service principal / lab credentials (copy from .env.azure.example)
+cloud/azure/.env.azure
+.env.azure
+
+# Local planning notes under docs/plans (not committed)
+docs/plans/
+
+# WIP GPU VM helper (stabilize locally before shipping)
+/create-azure-microshift-gpu-vm.sh
+/cloud/azure/create-azure-microshift-gpu-vm.sh

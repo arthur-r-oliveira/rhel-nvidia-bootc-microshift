@@ -4,11 +4,62 @@
 
 > **Disclaimer:** This repository is **work in progress**. Builds and runtime behavior have been exercised only on **x86_64**; **aarch64** and other architectures are not validated here.
 
+## Quick start (build → VHD → Azure)
+
+Minimal path on a subscribed **RHEL 9 x86_64** host with **Podman**. For the Azure step you also need the **Azure CLI** and a signed-in context (**`az login`** or a service principal).
+
+**Azure lab / service principal credentials:** Store **client ID, client secret, tenant, and subscription** only in a **local file that is never committed**. Copy **`cloud/azure/.env.azure.example`** to **`cloud/azure/.env.azure`**, fill in **`AZURE_CLIENT_ID`**, **`AZURE_CLIENT_SECRET`**, **`AZURE_TENANT_ID`**, and optionally **`AZURE_SUBSCRIPTION`** / **`AZURE_RESOURCE_GROUP`** (the example maps names like **`CLIENT_ID`** → **`AZURE_CLIENT_ID`**; use **`AZURE_CLIENT_SECRET`**, not a generic **`PASSWORD`** export). Run **`chmod 600 cloud/azure/.env.azure`**, then **`./azure-login-sp.sh`** to run **`az login --service-principal`** and select the subscription. Override the file path with **`AZURE_ENV_FILE`** if needed. **Rotate the client secret** if it was ever pasted into chat, email, or a ticket. Do **not** put these values in **`argfile.conf`** or shell history-friendly **`export PASSWORD=...`** lines.
+
+1. **Clone and configure** — Check out this repository, edit **`argfile.conf`** (at least **`USER_PASSWD`**; review **`BASE_IMAGE`**, **`BUILDER_IMAGE`**, **`DRIVER_VERSION`**, **`CUDA_VERSION`**, **`NVDP_IMAGE`**), and add the **full** OpenShift pull secret as **`.pull-secret.json`** in the repo root ([download](https://console.redhat.com/openshift/downloads#tool-pull-secret) — must include **`quay.io`** for embedded MicroShift images).
+
+2. **Build the bootc OCI image** — From the repo root (use **`sudo podman`** for the whole pipeline if you will run BIB with **`sudo`** in step 3, so the image store matches):
+
+   ```bash
+   chmod +x test-build.sh
+   ./test-build.sh
+   ```
+
+   By default this tags **`localhost/microshift-nvidia-bootc-test:latest`** (set **`FINAL_IMAGE_TAG`** when invoking **`test-build.sh`** if you need another name).
+
+3. **Produce a VHD** with [bootc-image-builder](https://osbuild.org/docs/bootc/#-image-types):
+
+   ```bash
+   chmod +x build-bootc-disk.sh
+   sudo ./build-bootc-disk.sh -t vhd -o ./bib-output localhost/microshift-nvidia-bootc-test:latest
+   find bib-output -name '*.vhd'
+   ```
+
+   The **`.vhd`** path is often **`bib-output/vpc/disk.vhd`** or **`bib-output/vhd/disk.vhd`**. Optionally pass **`localhost/microshift-nvidia-bootc-test@sha256:…`** instead of **`:latest`** to pin the digest (see **Disk images** below).
+
+4. **Upload to Azure** — Replace **`myRg`**, **`mystore`**, **`eastus`**, and **`myMicroshiftNvidiaImage`** with your resource group, storage account, region, and image name:
+
+   ```bash
+   chmod +x push-vhd-to-azure.sh
+   ./push-vhd-to-azure.sh --dry-run \
+     --vhd ./bib-output/vpc/disk.vhd \
+     --resource-group myRg --storage-account mystore --location eastus \
+     --image-name myMicroshiftNvidiaImage
+   ./push-vhd-to-azure.sh \
+     --vhd ./bib-output/vpc/disk.vhd \
+     --resource-group myRg --storage-account mystore --location eastus \
+     --image-name myMicroshiftNvidiaImage
+   ```
+
+   The **managed image** is created in the **`--resource-group`** you pass here (the disk lands there too). In the Azure portal (**Virtual machines → Images** or **Custom images**), that same name and resource group are what you use when selecting the image for a new VM. Storage can live in another group via **`--storage-resource-group`**.
+
+   **Next: deploy a VM** — Use the portal or **`az vm create`** (e.g. GPU sizes such as **Standard NC4as T4 v3**, Gen2, same region as the image). The image stays in the **upload** resource group; if the VM lives in another group, select that image by subscription + **image resource group** + name, or pass the full image resource ID to **`az`**. OpenEnv-style **`RESOURCEGROUP`** is not read automatically; map it to **`AZURE_RESOURCE_GROUP`** in **`cloud/azure/.env.azure`** (or pass **`--resource-group`**) for **`push-vhd-to-azure.sh`**. Gen2 **`securityType`** behavior varies by subscription—see [Trusted Launch FAQ](https://aka.ms/TrustedLaunch-FAQ) and current **`az vm create`** documentation if deployment fails on security settings.
+
+**Next:** prerequisites, registry notes, **`argfile.conf`** reference, troubleshooting, and equivalent manual **`podman build`** commands are in **Prerequisites**, **Registries and inputs**, **Build**, and **Disk images (bootc-image-builder) and Azure VHD** below.
+
+**Layout:** the commands above use thin wrappers at the repo root; implementations live in **`build/test-build.sh`**, **`build/build-bootc-disk.sh`**, and **`cloud/azure/`** (**`push-vhd-to-azure.sh`**, **`azure-login-sp.sh`**). Host-only build prep stays under **`scripts/host/`**. Kmod signing input is **`packaging/x509-configuration.ini`**.
+
+---
+
 This branch builds a **fully self-contained** [image mode for RHEL](https://docs.redhat.com/en/documentation/red_hat_build_of_microshift/4.20/html-single/installing_with_image_mode_for_rhel/index) bootc image with:
 
-- **NVIDIA GPU driver** — precompiled, self-signed **`kmod-nvidia`** built in a **local builder image** derived from the **same `BASE_IMAGE`** as the final bootc system ([`Containerfile.builder`](Containerfile.builder)), matching the [fedora-bootc-nvidia](https://github.com/coreos/fedora-bootc-nvidia) split (`BUILDER_IMAGE` + main `Containerfile`). **`scripts/dnf-refresh-all.sh`** runs **`dnf upgrade --nobest`** on **all packages including `kernel*`**, then **`kernel-devel`** is aligned to the running **`kernel-core`** before **`rpmbuild`**. The final stage runs the same full refresh so the shipped kernel matches the kmod **when both builds see the same repo metadata** (run **`test-build.sh`** end-to-end; pin **`BASE_IMAGE`** to a digest if a stale kmod/kernel mismatch appears).
+- **NVIDIA GPU driver** — precompiled, self-signed **`kmod-nvidia`** built in a **local builder image** derived from the **same `BASE_IMAGE`** as the final bootc system ([`Containerfile.builder`](Containerfile.builder)), matching the [fedora-bootc-nvidia](https://github.com/coreos/fedora-bootc-nvidia) split (`BUILDER_IMAGE` + main `Containerfile`). **`scripts/image/dnf-refresh-all.sh`** runs **`dnf upgrade --nobest`** on **all packages including `kernel*`**, then **`kernel-devel`** is aligned to the running **`kernel-core`** before **`rpmbuild`**. The final stage runs the same full refresh so the shipped kernel matches the kmod **when both builds see the same repo metadata** (run **`test-build.sh`** end-to-end; pin **`BASE_IMAGE`** to a digest if a stale kmod/kernel mismatch appears).
 - **CUDA user-space** packages from NVIDIA’s public repo and **nvidia-container-toolkit**
-- **Self-signed kmod** keys (`x509-configuration.ini` and the `builder` stage in `Containerfile`)
+- **Self-signed kmod** keys (`packaging/x509-configuration.ini` and the `builder` stage in `Containerfile`)
 - **Red Hat build of MicroShift 4.20** — container images **physically embedded** under `/usr/lib/containers/storage` and copied into CRI-O storage before each start via `microshift-copy-images` (Red Hat “physically bound” / disconnected-friendly flow, [Chapter 4](https://docs.redhat.com/en/documentation/red_hat_build_of_microshift/4.20/html-single/installing_with_image_mode_for_rhel/index))
 - **NVIDIA Kubernetes Device Plugin** — static manifests under `/etc/microshift/manifests.d/nvidia-device-plugin/` (vendored from [NVIDIA device-plugin static OpenShift deployment](https://gitlab.com/nvidia/kubernetes/device-plugin/-/blob/main/deployments/static/nvidia-device-plugin-privileged-with-service-account.yml)); the **`NVDP_IMAGE`** reference is **embedded** next to the MicroShift release payload so air-gapped nodes do not pull from a registry at runtime
 - **CRI-O + NVIDIA Container Toolkit** — `nvidia-ctk runtime configure` for CRI-O (see [NVIDIA GPU on Red Hat Device Edge](https://nvidia.github.io/cloud-native-docs/review/pr-358/edge/latest/nvidia-gpu-with-device-edge.html)), MicroShift drop-in ordering (`10-microshift.conf` / `11-microshift-ovn.conf`), `container_use_devices` SELinux boolean, and the documented `config.toml` runtimes line
@@ -21,14 +72,14 @@ The **`main`** branch of the parent **nvidia-bootc** lineage targets the **RHEL 
 - **Tools**: `podman` with support for `--secret` (embedding + `/etc/crio/openshift-pull-secret`), plus network access to `registry.redhat.io`, NVIDIA, and GitHub (NVIDIA packaging sources) during the build.
 - **Local user `redhat`**: Created via **`systemd-sysusers`** and **`usr/lib/sysusers.d/10-microshift-nvidia-bootc.conf`** (UID/GID **1000**) so **`bootc container lint`**’s sysusers check passes; password still comes from **`USER_PASSWD`**.
 - **Pull secret**: JSON that can pull **`registry.redhat.io`** images: bootc **`BASE_IMAGE`**, OpenShift/MicroShift release images, and any layers referenced while embedding (see `microshift-release-info` / `release-$(uname -m).json` after RPM install). **`NVDP_IMAGE`** is often **`nvcr.io`**; if it needs auth, merge **`nvcr.io`** credentials into the same secret (same file is used for **`--authfile`** and **`--secret id=pullsecret`**).
-- **`quay.io/openshift-release-dev`**: `microshift-release-info` often lists payload images on **`quay.io/openshift-release-dev`**. That registry is **not** covered by `podman login registry.redhat.io` alone. Use the **full** pull secret from [console.redhat.com/openshift/downloads](https://console.redhat.com/openshift/downloads#tool-pull-secret) (it includes **`quay.io`**) as **`.pull-secret.json`**, or merge those auths into the file you pass to **`--secret`**. The embed step uses **`scripts/embed-microshift-images.sh`**: it runs with **`set -e`**, so the **build fails** if any image cannot be copied (no more silent half-embeds). It also **retries** `quay.io/openshift-release-dev/...` as **`registry.redhat.io/openshift-release-dev/...`** when the first pull fails, which matches common Red Hat mirroring for customer registries.
+- **`quay.io/openshift-release-dev`**: `microshift-release-info` often lists payload images on **`quay.io/openshift-release-dev`**. That registry is **not** covered by `podman login registry.redhat.io` alone. Use the **full** pull secret from [console.redhat.com/openshift/downloads](https://console.redhat.com/openshift/downloads#tool-pull-secret) (it includes **`quay.io`**) as **`.pull-secret.json`**, or merge those auths into the file you pass to **`--secret`**. The embed step uses **`scripts/image/embed-microshift-images.sh`**: it runs with **`set -e`**, so the **build fails** if any image cannot be copied (no more silent half-embeds). It also **retries** `quay.io/openshift-release-dev/...` as **`registry.redhat.io/openshift-release-dev/...`** when the first pull fails, which matches common Red Hat mirroring for customer registries.
 
 ## Registries and inputs
 
 - **Kmod builder image** (`BUILDER_IMAGE`): tag produced by **`Containerfile.builder`** (e.g. **`localhost/microshift-nvidia-kmod-builder:latest`**). It is **`FROM ${BASE_IMAGE}`** plus toolchain; **`test-build.sh`** builds it before the final image unless **`SKIP_BUILDER=1`**.
 - **Base image** (`BASE_IMAGE`): e.g. **`registry.redhat.io/rhel9-eus/rhel-9.6-bootc:9.6`** for **both** the builder layer and the final system. Pin a **digest** so the **same** **`kernel-core`** NVR is used in both builds. Non-EUS alternative: **`registry.redhat.io/rhel9/rhel-bootc:9.6`**.
 - **No vendored subscription `.repo` files in the image context**: Red Hat repo access comes from the **build host** RHSM entitlement (and optional `podman build` volume mounts), like the upstream MicroShift image-mode examples—not from static mirror definitions copied into the repository.
-- **CUDA + container toolkit**: added at build time from NVIDIA’s public URLs (see `scripts/install-microshift-nvidia-stack.sh` and [Device Edge RPM flow](https://nvidia.github.io/cloud-native-docs/review/pr-358/edge/latest/nvidia-gpu-with-device-edge.html)); nothing under `repos/` is copied into the image.
+- **CUDA + container toolkit**: added at build time from NVIDIA’s public URLs (see `scripts/image/install-microshift-nvidia-stack.sh` and [Device Edge RPM flow](https://nvidia.github.io/cloud-native-docs/review/pr-358/edge/latest/nvidia-gpu-with-device-edge.html)); no vendored `.repo` files are copied into the image ([details](docs/nvidia-repositories.md)).
 
 ## `argfile.conf` (main knobs)
 
@@ -49,11 +100,11 @@ There are **no default `ARG` values in `Containerfile` / `Containerfile.builder`
 | `IMAGE_VERSION_ID` | Label on the image (`image_version_id`). |
 | `RPM_HOST` / `VENDOR` | Passed into the NVIDIA kmod RPM build. |
 | `NVDP_IMAGE` | NVIDIA **k8s-device-plugin** image to embed and to run in the DaemonSet (must stay in sync). |
-| `CONFIGURE_BUILD_HOST_EUS` | If **`1`**, **`test-build.sh`** runs **`scripts/configure-host-rhsm-eus.sh`** (as root via **`sudo`**) before **`podman`** so the **build host** uses EUS BaseOS/AppStream. Set **`0`** on hosts without **`subscription-manager`** (e.g. Fedora) or if you manage RHSM elsewhere. |
-| `EUS_RELEASE` | Passed into the image as **`ARG`/`ENV`**. Before every **`dnf upgrade`**, **`scripts/dnf-refresh-all.sh`** runs **`scripts/rhsm-enable-eus-in-container.sh`** to **`subscription-manager release --set`** and enable **`rhel-9-for-$(uname -m)-{baseos,appstream}-eus-rpms`**, matching [RHEL EUS](https://access.redhat.com/articles/rhel-eus#c5). Containers do **not** automatically see EUS the way the host does ([KB 6712511](https://access.redhat.com/solutions/6712511)); you still need **entitlements** and (typically) the same **`.repo`** definitions as the host. |
+| `CONFIGURE_BUILD_HOST_EUS` | If **`1`**, **`test-build.sh`** runs **`scripts/host/configure-host-rhsm-eus.sh`** (as root via **`sudo`**) before **`podman`** so the **build host** uses EUS BaseOS/AppStream. Set **`0`** on hosts without **`subscription-manager`** (e.g. Fedora) or if you manage RHSM elsewhere. |
+| `EUS_RELEASE` | Passed into the image as **`ARG`/`ENV`**. Before every **`dnf upgrade`**, **`scripts/image/dnf-refresh-all.sh`** runs **`scripts/image/rhsm-enable-eus-in-container.sh`** to **`subscription-manager release --set`** and enable **`rhel-9-for-$(uname -m)-{baseos,appstream}-eus-rpms`**, matching [RHEL EUS](https://access.redhat.com/articles/rhel-eus#c5). Containers do **not** automatically see EUS the way the host does ([KB 6712511](https://access.redhat.com/solutions/6712511)); you still need **entitlements** and (typically) the same **`.repo`** definitions as the host. |
 | `BUILD_WITH_HOST_RHSM` | Set **`1`** on subscribed RHEL build hosts so **`podman build`** mounts **`/etc/rhsm`** and **`/etc/pki/entitlement`**. When **`EUS_RELEASE`** is set, **`test-build.sh`** also mounts **`/var/lib/rhsm`** and **`/etc/yum.repos.d`** (or turns on **`BUILD_WITH_HOST_YUM_REPOS`** if unset) so **`kernel-devel`** for the bootc kernel resolves from **EUS** instead of default AppStream-only metadata. |
-| `CONFIGURE_HOST_NVIDIA_REPOS` | Default **`1`**: before build, run **`scripts/configure-host-nvidia-build-repos.sh`** so **CUDA** and **NVIDIA Container Toolkit** **`.repo`** files exist under **`/etc/yum.repos.d`** on the host (required because that directory is often mounted **read-only** into the build). |
-| `CONFIGURE_HOST_MICROSHIFT_REPOS` | Default **`1`** when the same host hook runs: **`scripts/configure-host-microshift-build-repos.sh`** runs **`subscription-manager repos --enable`** for **`rhocp-${USHIFT_VER}-…`** and **`fast-datapath-…`** so the mounted **`redhat.repo`** already has those repos **enabled** (no **`--enablerepo`** in the **`Containerfile`**). Set **`0`** if you enable those repos yourself or rely on per-transaction **`--enablerepo`** inside the image build. |
+| `CONFIGURE_HOST_NVIDIA_REPOS` | Default **`1`**: before build, run **`scripts/host/configure-host-nvidia-build-repos.sh`** so **CUDA** and **NVIDIA Container Toolkit** **`.repo`** files exist under **`/etc/yum.repos.d`** on the host (required because that directory is often mounted **read-only** into the build). |
+| `CONFIGURE_HOST_MICROSHIFT_REPOS` | Default **`1`** when the same host hook runs: **`scripts/host/configure-host-microshift-build-repos.sh`** runs **`subscription-manager repos --enable`** for **`rhocp-${USHIFT_VER}-…`** and **`fast-datapath-…`** so the mounted **`redhat.repo`** already has those repos **enabled** (no **`--enablerepo`** in the **`Containerfile`**). Set **`0`** if you enable those repos yourself or rely on per-transaction **`--enablerepo`** inside the image build. |
 
 ## Build
 
@@ -74,7 +125,7 @@ chmod +x test-build.sh
 4. **`podman build -f Containerfile.builder -t "${BUILDER_IMAGE}"`** (unless **`SKIP_BUILDER=1`** if you already have that tag).
 5. **`podman build -f Containerfile`** for the final tag (**`FINAL_IMAGE_TAG`**, default **`microshift-nvidia-bootc-test`**).
 
-**`Containerfile.builder`** runs **`scripts/dnf-refresh-all.sh`** (full **`dnf upgrade`**) twice around toolchain installs, with **`ensure_kernel_devel`** so **`kernel-devel`** tracks **`kernel-core`**. The main **`Containerfile`** builder stage runs **`dnf-refresh-all.sh`** again before **`rpmbuild`**, re-deriving kernel macros from the **current** **`kernel-core`**. The **final** stage runs **`dnf-bootstrap-final.sh`**, which calls **`dnf-refresh-all.sh`** before **`install-microshift-nvidia-stack.sh`** does another full refresh.
+**`Containerfile.builder`** runs **`scripts/image/dnf-refresh-all.sh`** (full **`dnf upgrade`**) twice around toolchain installs, with **`ensure_kernel_devel`** so **`kernel-devel`** tracks **`kernel-core`**. The main **`Containerfile`** builder stage runs **`dnf-refresh-all.sh`** again before **`rpmbuild`**, re-deriving kernel macros from the **current** **`kernel-core`**. The **final** stage runs **`dnf-bootstrap-final.sh`**, which calls **`dnf-refresh-all.sh`** before **`install-microshift-nvidia-stack.sh`** does another full refresh.
 
 For **air-gapped** or **digest-pinned** builds, skip the pull: **`SKIP_PRE_PULL=1`** and **`PODMAN_BUILD_PULL=missing ./test-build.sh`**.
 
@@ -84,7 +135,7 @@ On a subscribed workstation, use **`BUILD_WITH_HOST_RHSM=1`** (default in **`arg
 
 **Curl error (58) / PEM “Permission denied” on `cdn.redhat.com` during `dnf`:** On **SELinux** hosts, bind-mounted **`/etc/pki/entitlement`** keys are often unreadable inside the build unless relabeled. **`test-build.sh`** defaults to **`--volume …:ro,z`** (and **`rw,z`** for entitlements when **`BUILD_ENTITLEMENT_VOLUME_RW=1`**) so Podman applies a shared MCS label. To avoid relabeling host files, set **`BUILD_RHSM_VOLUME_SELINUX_LABEL=none`** (you may need **`sudo podman build`** or **`--security-opt label=disable`** on the build instead—only if you understand the tradeoff). **`restorecon -RFv /etc/pki/entitlement`** on the host is another recovery step if labels were altered.
 
-**`[Errno 30] Read-only file system` on `/etc/yum.repos.d/cuda-rhel9.repo`:** EUS builds mount **`/etc/yum.repos.d`** read-only so the **`Containerfile`** cannot write **`cuda-rhel9.repo`** there (no **`curl -o`** / host drop-in). **`test-build.sh`** runs **`scripts/configure-host-nvidia-build-repos.sh`** (as **root**) before **`podman build`** when **`BUILD_WITH_HOST_RHSM=1`** and **`yum.repos.d`** will be mounted—creating **`cuda-rhel9.repo`** and **`nvidia-container-toolkit.repo`** on the host. **`install-microshift-nvidia-stack.sh`** then reuses those files. Set **`CONFIGURE_HOST_NVIDIA_REPOS=0`** to skip the host hook and install the `.repo` files yourself.
+**`[Errno 30] Read-only file system` on `/etc/yum.repos.d/cuda-rhel9.repo`:** EUS builds mount **`/etc/yum.repos.d`** read-only so the **`Containerfile`** cannot write **`cuda-rhel9.repo`** there (no **`curl -o`** / host drop-in). **`test-build.sh`** runs **`scripts/host/configure-host-nvidia-build-repos.sh`** (as **root**) before **`podman build`** when **`BUILD_WITH_HOST_RHSM=1`** and **`yum.repos.d`** will be mounted—creating **`cuda-rhel9.repo`** and **`nvidia-container-toolkit.repo`** on the host. **`scripts/image/install-microshift-nvidia-stack.sh`** (installed as **`/usr/bin/install-microshift-nvidia-stack.sh`**) then reuses those files. Set **`CONFIGURE_HOST_NVIDIA_REPOS=0`** to skip the host hook and install the `.repo` files yourself.
 
 **Equivalent manual commands** (after setting variables from **`argfile.conf`** or exporting them):
 
@@ -172,7 +223,7 @@ Create a namespace and a one-shot pod that requests a GPU, for example **`nvcr.i
 
 ### GPU VM (e.g. Azure N-series) — driver not loading / `nvidia-smi` missing
 
-The **kernel module** must load before **NVML** (`nvidia-smi`, `nvidia-ctk cdi generate`). This image uses an **OOT kmod** signed with the build-time key in **`x509-configuration.ini`**.
+The **kernel module** must load before **NVML** (`nvidia-smi`, `nvidia-ctk cdi generate`). This image uses an **OOT kmod** signed with the build-time key in **`packaging/x509-configuration.ini`**.
 
 1. **VM SKU**: Use a **GPU** size (e.g. Azure **NC**/ **ND**/ **NV**). On a CPU-only VM, `modprobe nvidia` will not create devices.
 2. **Order of boot**: **`nvidia-toolkit-firstboot`** is wired for **`multi-user.target`** with **`modprobe`** pre-commands and **`/etc/modules-load.d/nvidia.conf`** so modules are not expected to load during **`basic.target`** anymore.
@@ -191,7 +242,7 @@ podman run --rm "${BUILDER_IMAGE}" rpm -q kernel-core
 podman run --rm localhost/microshift-nvidia-bootc-test rpm -q kernel-core   # or your final tag
 ```
 
-The install script **versionlocks** kernel packages before **MicroShift** installs, **fails** if **`kmod-nvidia`** does not match **`kernel-core`**, and **`verify-nvidia-kmod.sh`** checks **`nvidia.ko`**.
+The install script **versionlocks** kernel packages before **MicroShift** installs, **fails** if **`kmod-nvidia`** does not match **`kernel-core`**, and **`scripts/image/verify-nvidia-kmod.sh`** checks **`nvidia.ko`**.
 
 **NVIDIA `580` vs RHEL kernel `570`:** `DRIVER_VERSION=580.x` is the **NVIDIA driver** branch. **`5.14.0-570.xx.y`** in **`kernel-core`** is the **Red Hat kernel** NVR — not “NVIDIA 570.”
 
