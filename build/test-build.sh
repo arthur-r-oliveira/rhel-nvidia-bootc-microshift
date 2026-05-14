@@ -26,7 +26,9 @@ load_argfile() {
 load_argfile "${ARGFILE}"
 
 : "${BASE_IMAGE:?Set BASE_IMAGE in argfile.conf}"
-: "${BUILDER_IMAGE:?Set BUILDER_IMAGE in argfile.conf}"
+if [[ "${SINGLE_STAGE_BOOTC:-0}" != "1" ]]; then
+	: "${BUILDER_IMAGE:?Set BUILDER_IMAGE in argfile.conf (or set SINGLE_STAGE_BOOTC=1 for OSS RHEL 10 single Containerfile)}"
+fi
 
 # Optional: pin host subscription to a RHEL minor and EUS BaseOS/AppStream before builds so dnf
 # (especially with BUILD_WITH_HOST_RHSM=1) matches rhel9-eus bootc. Ref:
@@ -52,7 +54,7 @@ fi
 # (optionally) enables MicroShift repos in redhat.repo so the container need not use --enablerepo.
 if [[ "${BUILD_WITH_HOST_RHSM:-}" == "1" ]]; then
 	_MOUNT_YUM=0
-	if [[ "${BUILD_WITH_HOST_YUM_REPOS:-}" == "1" ]] || [[ -n "${EUS_RELEASE:-}" ]]; then
+	if [[ "${BUILD_WITH_HOST_YUM_REPOS:-}" == "1" ]] || [[ -n "${EUS_RELEASE:-}" ]] || [[ "${SINGLE_STAGE_BOOTC:-0}" == "1" ]]; then
 		_MOUNT_YUM=1
 	fi
 	if [[ "${_MOUNT_YUM}" -eq 1 ]]; then
@@ -63,9 +65,9 @@ if [[ "${BUILD_WITH_HOST_RHSM:-}" == "1" ]]; then
 			fi
 			echo "Ensuring NVIDIA CUDA + container-toolkit .repo files on host (for ro yum.repos.d mount)…"
 			if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
-				"${_NVR}"
+				RHEL_MAJOR="${RHEL_MAJOR:-9}" "${_NVR}"
 			else
-				sudo "${_NVR}"
+				sudo RHEL_MAJOR="${RHEL_MAJOR:-9}" "${_NVR}"
 			fi
 		fi
 		if [[ "${CONFIGURE_HOST_MICROSHIFT_REPOS:-1}" == "1" ]]; then
@@ -73,11 +75,11 @@ if [[ "${BUILD_WITH_HOST_RHSM:-}" == "1" ]]; then
 			if [[ ! -x "${_MS}" ]]; then
 				chmod 755 "${_MS}"
 			fi
-			echo "Enabling MicroShift rhocp + fast-datapath repos on host (USHIFT_VER=${USHIFT_VER})…"
+			echo "Enabling MicroShift rhocp + fast-datapath repos on host (USHIFT_VER=${USHIFT_VER} RHEL_MAJOR=${RHEL_MAJOR:-9})…"
 			if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
-				USHIFT_VER="${USHIFT_VER}" "${_MS}"
+				USHIFT_VER="${USHIFT_VER}" RHEL_MAJOR="${RHEL_MAJOR:-9}" "${_MS}"
 			else
-				sudo USHIFT_VER="${USHIFT_VER}" "${_MS}"
+				sudo USHIFT_VER="${USHIFT_VER}" RHEL_MAJOR="${RHEL_MAJOR:-9}" "${_MS}"
 			fi
 		fi
 	fi
@@ -159,7 +161,9 @@ COMMON_BUILD=(
 	--build-arg-file "${ARGFILE}"
 )
 
-if [[ -z "${SKIP_BUILDER:-}" ]]; then
+if [[ "${SINGLE_STAGE_BOOTC:-0}" == "1" ]]; then
+	echo "SINGLE_STAGE_BOOTC=1: skipping Containerfile.builder (RHEL 10 OSS / rhel-drivers path)."
+elif [[ -z "${SKIP_BUILDER:-}" ]]; then
 	echo "Building kmod builder image: ${BUILDER_IMAGE}"
 	podman build "${COMMON_BUILD[@]}" \
 		-f "${REPO_ROOT}/Containerfile.builder" \

@@ -1,67 +1,36 @@
-# kmod builder image must be built first from the same BASE_IMAGE (Containerfile.builder). All build args: argfile.conf only.
-ARG BUILDER_IMAGE
+# Single-stage bootc: RHEL 10.1+ Red Hat–signed OpenRM NVIDIA (Extensions/Supplementary + rhel-drivers)
+# and Red Hat build of MicroShift 4.21 on RHEL 10 repos (see OCPBUGS-83693 / rhocp-4.21-for-rhel-10).
+# Build: ./test-build.sh (argfile.conf must set SINGLE_STAGE_BOOTC=1 — no Containerfile.builder).
 ARG BASE_IMAGE
-
-FROM ${BUILDER_IMAGE} AS builder
-
-ARG EUS_RELEASE
-ENV EUS_RELEASE=${EUS_RELEASE}
-ARG BASE_URL
-ARG DRIVER_VERSION
-ARG USE_64K_PAGESIZE
-ARG VENDOR
-ARG RPM_HOST
-
-USER root
-WORKDIR /root
-COPY packaging/x509-configuration.ini x509-configuration.ini
-COPY scripts/image/build-kmod-nvidia-precompiled.sh /root/build-kmod-nvidia-precompiled.sh
-
-ENV BASE_URL=${BASE_URL} \
-    DRIVER_VERSION=${DRIVER_VERSION} \
-    USE_64K_PAGESIZE=${USE_64K_PAGESIZE} \
-    VENDOR=${VENDOR} \
-    RPM_HOST=${RPM_HOST}
-
-RUN chmod 755 /root/build-kmod-nvidia-precompiled.sh \
-    && /root/build-kmod-nvidia-precompiled.sh
 
 FROM ${BASE_IMAGE}
 
-ARG EUS_RELEASE
-ENV EUS_RELEASE=${EUS_RELEASE}
 ARG VENDOR
 LABEL vendor=${VENDOR} \
       org.opencontainers.image.vendor=${VENDOR}
 
 ARG DRIVER_TYPE
-ENV NVIDIA_DRIVER_TYPE=${DRIVER_TYPE} \
-    DRIVER_TYPE=${DRIVER_TYPE}
-
-ARG DRIVER_VERSION
-ENV NVIDIA_DRIVER_VERSION=${DRIVER_VERSION} \
-    DRIVER_VERSION=${DRIVER_VERSION}
-
-ARG CUDA_VERSION
-ENV CUDA_VERSION=${CUDA_VERSION}
-
-ARG DISABLE_VGPU_VERSION_CHECK
-ENV DISABLE_VGPU_VERSION_CHECK=${DISABLE_VGPU_VERSION_CHECK}
+ENV DRIVER_TYPE=${DRIVER_TYPE}
 
 ARG USHIFT_VER
 ENV USHIFT_VER=${USHIFT_VER}
+
+ARG RHEL_MAJOR=10
+ENV RHEL_MAJOR=${RHEL_MAJOR}
+
 ARG USER_PASSWD
 ENV USER_PASSWD=${USER_PASSWD}
+
 ARG NVDP_IMAGE
 ENV NVDP_IMAGE=${NVDP_IMAGE}
 
+ARG USE_64K_PAGESIZE
+ENV USE_64K_PAGESIZE=${USE_64K_PAGESIZE}
+
 USER root
 
-COPY scripts/image/rhsm-enable-eus-in-container.sh /usr/bin/rhsm-enable-eus-in-container.sh
 COPY scripts/image/dnf-refresh-all.sh /usr/bin/dnf-refresh-all.sh
-COPY scripts/image/dnf-bootstrap-final.sh /usr/bin/dnf-bootstrap-final.sh
-RUN chmod 755 /usr/bin/rhsm-enable-eus-in-container.sh /usr/bin/dnf-refresh-all.sh /usr/bin/dnf-bootstrap-final.sh \
-   && /usr/bin/dnf-refresh-all.sh
+RUN chmod 755 /usr/bin/dnf-refresh-all.sh
 
 COPY etc /etc
 COPY scripts/image/microshift-copy-images /usr/bin/microshift-copy-images
@@ -69,15 +38,11 @@ COPY scripts/image/embed-microshift-images.sh /usr/bin/embed-microshift-images.s
 COPY scripts/image/bootc-finalize-for-lint.sh /usr/bin/bootc-finalize-for-lint.sh
 COPY usr/lib/sysusers.d/10-microshift-nvidia-bootc.conf /usr/lib/sysusers.d/10-microshift-nvidia-bootc.conf
 
-ARG USE_64K_PAGESIZE
-ENV USE_64K_PAGESIZE=${USE_64K_PAGESIZE}
+COPY scripts/image/enable-rhel10-nvidia-repos.sh /usr/bin/enable-rhel10-nvidia-repos.sh
+COPY scripts/image/install-microshift-nvidia-oss-rhel10.sh /usr/bin/install-microshift-nvidia-oss-rhel10.sh
 
-COPY --from=builder /root/yum-packaging-precompiled-kmod/RPMS/*/*.rpm /rpms/
-
-COPY scripts/image/install-microshift-nvidia-stack.sh /usr/bin/install-microshift-nvidia-stack.sh
-
-RUN chmod 755 /usr/bin/install-microshift-nvidia-stack.sh \
-    && /usr/bin/install-microshift-nvidia-stack.sh
+RUN chmod 755 /usr/bin/enable-rhel10-nvidia-repos.sh /usr/bin/install-microshift-nvidia-oss-rhel10.sh \
+    && /usr/bin/install-microshift-nvidia-oss-rhel10.sh
 
 ENV IMAGE_STORAGE_DIR=/usr/lib/containers/storage
 ENV IMAGE_LIST_FILE=${IMAGE_STORAGE_DIR}/image-list.txt

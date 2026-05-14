@@ -9,20 +9,36 @@ if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
 	exit 1
 fi
 
+RHEL_MAJOR="${RHEL_MAJOR:-9}"
+
 nvidia_cuda_repo_url() {
+	local maj="${1:?}"
 	case "$(uname -m)" in
-		x86_64) echo "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo" ;;
-		aarch64) echo "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/sbsa/cuda-rhel9.repo" ;;
+		x86_64)
+			if [[ "${maj}" == "10" ]]; then
+				echo "https://developer.download.nvidia.com/compute/cuda/repos/rhel10/x86_64/cuda-rhel10.repo"
+			else
+				echo "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo"
+			fi
+			;;
+		aarch64)
+			if [[ "${maj}" == "10" ]]; then
+				echo "https://developer.download.nvidia.com/compute/cuda/repos/rhel10/sbsa/cuda-rhel10.repo"
+			else
+				echo "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/sbsa/cuda-rhel9.repo"
+			fi
+			;;
 		*) echo "Unsupported arch $(uname -m)" >&2; exit 1 ;;
 	esac
 }
 
-CUDA_URL="$(nvidia_cuda_repo_url)"
-if [[ -f /etc/yum.repos.d/cuda-rhel9.repo ]]; then
-	echo "Host: /etc/yum.repos.d/cuda-rhel9.repo already present."
+CUDA_URL="$(nvidia_cuda_repo_url "${RHEL_MAJOR}")"
+_cuda_file="cuda-rhel${RHEL_MAJOR}.repo"
+if [[ -f "/etc/yum.repos.d/${_cuda_file}" ]]; then
+	echo "Host: /etc/yum.repos.d/${_cuda_file} already present."
 else
 	echo "Host: adding CUDA repo (${CUDA_URL})"
-	curl -fsSL "${CUDA_URL}" -o /etc/yum.repos.d/cuda-rhel9.repo
+	curl -fsSL "${CUDA_URL}" -o "/etc/yum.repos.d/${_cuda_file}"
 fi
 
 TOOLKIT_REPO=/etc/yum.repos.d/nvidia-container-toolkit.repo

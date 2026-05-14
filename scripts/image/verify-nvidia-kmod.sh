@@ -13,10 +13,10 @@ if [ ! -f "${ko}" ]; then
     find /lib/modules -maxdepth 2 -type d 2>/dev/null || true
     exit 1
 fi
-# Precompiled RPM from yum-packaging-precompiled-kmod is named kmod-nvidia-<ver>-<kernel>-…, not "kmod-nvidia".
-kmod_pkg=$(rpm -qa | grep -E '^kmod-nvidia-[0-9]' | head -1)
+# Precompiled proprietary kmod: kmod-nvidia-<ver>-<kernel>-… ; RHEL 10 OpenRM: kmod-nvidia-open-…
+kmod_pkg=$(rpm -qa | grep -E '^kmod-nvidia(-open)?-[0-9]' | head -1)
 if [ -z "${kmod_pkg}" ]; then
-    echo "FATAL: no kmod-nvidia-* RPM installed (expected precompiled kmod package)"
+    echo "FATAL: no kmod-nvidia* RPM installed (expected kmod-nvidia or kmod-nvidia-open from Red Hat repos)"
     exit 1
 fi
 rpm -q "${kmod_pkg}" nvidia-driver nvidia-driver-cuda

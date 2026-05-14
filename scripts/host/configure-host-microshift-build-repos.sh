@@ -5,6 +5,7 @@
 set -euo pipefail
 
 : "${USHIFT_VER:?Set USHIFT_VER (e.g. 4.20) — same as image build arg}"
+RHEL_MAJOR="${RHEL_MAJOR:-9}"
 
 if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
 	echo "Run as root (sudo)." >&2
@@ -12,8 +13,8 @@ if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
 fi
 
 ARCH="$(uname -m)"
-RHOCP_REPO="rhocp-${USHIFT_VER}-for-rhel-9-${ARCH}-rpms"
-FAST_REPO="fast-datapath-for-rhel-9-${ARCH}-rpms"
+RHOCP_REPO="rhocp-${USHIFT_VER}-for-rhel-${RHEL_MAJOR}-${ARCH}-rpms"
+FAST_REPO="fast-datapath-for-rhel-${RHEL_MAJOR}-${ARCH}-rpms"
 
 if ! command -v subscription-manager >/dev/null 2>&1; then
 	echo "Host: subscription-manager not found; skipping MicroShift repo enable (container will use --enablerepo)."
