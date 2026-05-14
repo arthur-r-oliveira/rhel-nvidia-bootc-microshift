@@ -1,6 +1,5 @@
-# Single-stage bootc: RHEL 10.1+ Red Hat–signed OpenRM NVIDIA (Extensions/Supplementary + rhel-drivers)
-# and Red Hat build of MicroShift 4.21 on RHEL 10 repos (see OCPBUGS-83693 / rhocp-4.21-for-rhel-10).
-# Build: ./test-build.sh (argfile.conf must set SINGLE_STAGE_BOOTC=1 — no Containerfile.builder).
+# Branch rhel10_ushift421_nvidia_oss_tp — single-stage bootc: RHEL 10.1 + rhel-drivers (OSS) + MicroShift 4.21 (TP combo).
+# Build: ./test-build.sh (argfile.conf: SINGLE_STAGE_BOOTC=1).
 ARG BASE_IMAGE
 
 FROM ${BASE_IMAGE}

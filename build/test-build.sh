@@ -163,6 +163,10 @@ COMMON_BUILD=(
 
 if [[ "${SINGLE_STAGE_BOOTC:-0}" == "1" ]]; then
 	echo "SINGLE_STAGE_BOOTC=1: skipping Containerfile.builder (RHEL 10 OSS / rhel-drivers path)."
+elif [[ ! -f "${REPO_ROOT}/Containerfile.builder" ]]; then
+	echo "ERROR: This checkout has no Containerfile.builder (proprietary precompiled-kmod builder)." >&2
+	echo "Use branch rhel96-ga for that workflow, or set SINGLE_STAGE_BOOTC=1 in argfile.conf for OSS RHEL 10." >&2
+	exit 1
 elif [[ -z "${SKIP_BUILDER:-}" ]]; then
 	echo "Building kmod builder image: ${BUILDER_IMAGE}"
 	podman build "${COMMON_BUILD[@]}" \
