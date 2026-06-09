@@ -13,6 +13,14 @@ RHEL_MAJOR="${RHEL_MAJOR:-10}"
 
 /usr/bin/dnf-refresh-all.sh
 
+# Write nouveau blacklist BEFORE installing NVIDIA drivers so it is available
+# during any early initramfs generation or driver install hooks.
+mkdir -p /etc/modprobe.d
+cat > /etc/modprobe.d/blacklist_nouveau.conf <<EOF
+blacklist nouveau
+options nouveau modeset=0
+EOF
+
 dnf -y install rhel-drivers
 
 /usr/bin/enable-rhel10-nvidia-repos.sh
@@ -20,7 +28,7 @@ dnf -y install rhel-drivers
 dnf -y upgrade
 
 # Non-interactive image build: same entry point as on a host (blog + release notes).
-if ! rhel-drivers install nvidia; then
+if ! rhel-drivers install --batch --force nvidia:595.71.05; then
 	echo "ERROR: rhel-drivers install nvidia failed." >&2
 	exit 1
 fi
@@ -83,6 +91,7 @@ dnf "${DNF_OPTS[@]}" install -y \
 	cloud-init \
 	firewalld \
 	jq \
+	WALinuxAgent \
 	microshift \
 	microshift-release-info \
 	pciutils \
@@ -107,10 +116,12 @@ if getent group hugetlbfs >/dev/null; then
 fi
 
 systemd-sysusers
+usermod -s /bin/bash redhat
 echo "redhat:${USER_PASSWD}" | chpasswd
 
 systemctl enable microshift
 systemctl enable firewalld
+systemctl enable waagent
 firewall-offline-cmd --zone=public --add-port=22/tcp
 firewall-offline-cmd --zone=trusted --add-source=10.42.0.0/16
 firewall-offline-cmd --zone=trusted --add-source=169.254.169.1
@@ -118,8 +129,6 @@ systemctl enable microshift-make-rshared.service
 rm -f /usr/lib/systemd/system/default.target.wants/bootc-fetch-apply-updates.timer
 ln -sf ../cloud-init.target /usr/lib/systemd/system/default.target.wants/cloud-init.target
 systemctl enable nvidia-toolkit-firstboot.service
-
-echo "blacklist nouveau" > /etc/modprobe.d/blacklist_nouveau.conf
 
 if [[ -f /usr/lib/systemd/system/nvidia-fabricmanager.service ]]; then
 	sed -i '/\[Unit\]/a ConditionDirectoryNotEmpty=/proc/driver/nvidia-nvswitch/devices' \
