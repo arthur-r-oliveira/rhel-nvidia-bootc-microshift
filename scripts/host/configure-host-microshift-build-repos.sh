@@ -13,6 +13,20 @@ if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
 fi
 
 ARCH="$(uname -m)"
+_repolist_all="$(dnf repolist --enabled -q 2>/dev/null || true)"
+
+if [[ "${_repolist_all}" == *"rhocp-${USHIFT_VER}-el9"* ]]; then
+    echo "Using MicroShift EL9 workaround repos"
+
+    RHOCP_REPO="rhocp-${USHIFT_VER}-el9"
+    FAST_REPO="fast-datapath-el9"
+else
+    echo "Using native RHEL${RHEL_MAJOR} MicroShift repos"
+
+    RHOCP_REPO="rhocp-${USHIFT_VER}-for-rhel-${RHEL_MAJOR}-${ARCH}-rpms"
+    FAST_REPO="fast-datapath-for-rhel-${RHEL_MAJOR}-${ARCH}-rpms"
+fi
+
 RHOCP_REPO="rhocp-${USHIFT_VER}-for-rhel-${RHEL_MAJOR}-${ARCH}-rpms"
 FAST_REPO="fast-datapath-for-rhel-${RHEL_MAJOR}-${ARCH}-rpms"
 
@@ -22,4 +36,16 @@ if ! command -v subscription-manager >/dev/null 2>&1; then
 fi
 
 echo "Host: enabling ${RHOCP_REPO} and ${FAST_REPO}"
-subscription-manager repos --enable="${RHOCP_REPO}" --enable="${FAST_REPO}"
+if ! subscription-manager repos --enable="${RHOCP_REPO}" --enable="${FAST_REPO}" >/dev/null 2>&1; then
+	if [[ "${RHEL_MAJOR}" == "10" ]] && [[ "${USHIFT_VER}" == "4.21" ]]; then
+		_WORKAROUND="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/configure-host-microshift-workaround-repos.sh"
+		if [[ ! -x "${_WORKAROUND}" ]]; then
+			chmod 755 "${_WORKAROUND}"
+		fi
+		echo "Host: standard RHEL 10 MicroShift repos unavailable; using RHEL 9 workaround repo path."
+		"${_WORKAROUND}"
+		exit 0
+	fi
+	echo "Host: failed to enable ${RHOCP_REPO} or ${FAST_REPO} via subscription-manager." >&2
+	exit 1
+fi
